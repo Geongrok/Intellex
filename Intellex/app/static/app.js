@@ -51,7 +51,7 @@ function sourceCards(items, kind, query) {
   if (!Array.isArray(items) || !items.length) return "";
   const icon = kind === "web" ? "🌐" : "📚";
   const title = kind === "web" ? "Web sources" : "Database sources";
-  let html = `<div class="source-block"><button class="source-toggle" type="button"><span>${icon} ${title} <b>${items.length}</b></span><span>⌄</span></button><div class="source-list hidden">`;
+  let html = `<details class="source-block"><summary class="source-toggle"><span>${icon} ${title} <b>${items.length}</b></span><span class="chevron">⌄</span></summary><div class="source-list">`;
   items.slice(0, 5).forEach((item, i) => {
     const raw = item.snippet || item.evidence || item.text || "";
     const snippet = cleanSnippet(raw).slice(0, 420);
@@ -71,7 +71,7 @@ function sourceCards(items, kind, query) {
       ${item.url ? `<a class="open" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Open source ↗</a>` : ""}
     </article>`;
   });
-  html += `</div></div>`;
+  html += `</div></details>`;
   return html;
 }
 
@@ -151,25 +151,13 @@ formEl.addEventListener("submit", e => {
 
 document.querySelectorAll(".quick button").forEach(b => b.addEventListener("click", () => send(b.dataset.q)));
 
-document.addEventListener("click", (event) => {
-  const toggle = event.target.closest(".source-toggle");
-  if (!toggle) return;
-
-  const block = toggle.closest(".source-block");
+document.addEventListener("toggle", (event) => {
+  const block = event.target.closest?.(".source-block");
   if (!block) return;
-
-  const list = block.querySelector(".source-list");
-  if (!list) return;
-
-  const isOpen = !list.classList.contains("hidden");
-  list.classList.toggle("hidden", isOpen);
-  block.classList.toggle("is-open", !isOpen);
-  if (!isOpen) typesetMath(block);
-
-  const chevron = toggle.querySelector(".chevron");
-  if (chevron) chevron.textContent = isOpen ? "⌄" : "⌃";
-});
-
+  const chevron = block.querySelector(".chevron");
+  if (chevron) chevron.textContent = block.open ? "⌃" : "⌄";
+  if (block.open) typesetMath(block);
+}, true);
 
 
 rebuildBtn.addEventListener("click", async () => {

@@ -309,3 +309,7 @@ GitHub stores the **source code**; it does not execute the Python backend.
 ## Notes
 
 This is a personal research/development project. AI-generated answers and engineering calculations should be independently verified before being used for safety-critical or formal engineering decisions.
+
+
+### Web-search note
+The OpenRouter API key is used for answer generation. It is not automatically treated as a web-search engine. Web search uses DuckDuckGo by default, or Tavily/Exa/SerpAPI when configured; OpenRouter web search is opt-in via `WEB_SEARCH_BACKEND=openrouter`. Search results are relevance-filtered before being shown to the user.
