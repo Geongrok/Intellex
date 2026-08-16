@@ -80,6 +80,7 @@ function answerHtml(data) {
   let badge = "";
   if (data.case === 3 || source === "aerocalc") badge = `<span class="badge aero">🧮 AeroCalc</span>`;
   else if (data.case === 2 || source === "database") badge = `<span class="badge db">📚 Answered from your database</span>`;
+  else if (source === "web_unavailable") badge = `<span class="badge warn">⚠️ Web search unavailable</span>`;
   else if (data.case === 1 || source === "web") badge = `<span class="badge web">🌐 Answered from the web</span>`;
 
   let html = `<div class="answer-card">${badge}<div class="answer-text">${formatText(data.answer || "")}</div>`;

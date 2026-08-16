@@ -213,15 +213,31 @@ class ChatBot:
         # "Cmo" from being interpreted by a general search engine as unrelated
         # non-aerospace acronyms such as Commercial Market Outlook.
         web_results = self.web.search(retrieval_question)
-        answer_text = self.llm.generate(question, [], web_results)
+        usable_web = [r for r in web_results if not r.get("_search_error")]
+
+        if not usable_web:
+            return {
+                "answer": (
+                    "I couldn't retrieve relevant web sources for this question "
+                    "right now. The local knowledge base did not contain a "
+                    "sufficient match, and the web-search provider did not return "
+                    "usable results. Please try again in a moment."
+                ),
+                "case": 1,
+                "source": "web_unavailable",
+                "db_results": [],
+                "web_results": web_results,
+                "aerocalc": None,
+                "mode": self.llm.mode,
+            }
+
+        answer_text = self.llm.generate(question, [], usable_web)
         return {
             "answer": answer_text,
             "case": 1,
             "source": "web",
-            # Do not show failed/irrelevant DB candidates as supporting
-            # sources. They were only retrieval candidates.
             "db_results": [],
-            "web_results": web_results,
+            "web_results": usable_web,
             "aerocalc": None,
             "mode": self.llm.mode,
         }

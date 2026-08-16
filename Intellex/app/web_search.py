@@ -54,12 +54,6 @@ class WebSearch:
         forced = os.getenv("WEB_SEARCH_BACKEND", "").strip().lower()
         if forced:
             return forced
-        # Do not automatically use the OpenRouter LLM key as a web-search
-        # credential. The OpenRouter chat endpoint is not itself a reliable
-        # search engine, and treating the LLM key as one can produce fabricated
-        # or unrelated result lists. OpenRouter web search is opt-in only.
-        if self.openrouter_key and forced == "openrouter":
-            return "openrouter"
         if self.tavily_key:
             return "tavily"
         if self.exa_key:
@@ -169,6 +163,8 @@ class WebSearch:
         """Return a list of {title, url, snippet} dicts."""
         n = max_results or self.max_results
         search_query = self._web_query(query)
+        results = []
+        errors = []
         try:
             if self._backend == "openrouter" and self.openrouter_key:
                 results = self._search_openrouter(search_query, n)
@@ -181,67 +177,61 @@ class WebSearch:
             else:
                 results = self._search_duckduckgo(search_query, n)
         except Exception as exc:
-            # Graceful fallback to DuckDuckGo, then to a search link.
-            try:
-                results = self._search_duckduckgo(search_query, n)
-            except Exception:
-                link = "https://duckduckgo.com/?q=" + urllib.parse.quote(search_query)
-                results = [{
-                    "title": "Open search results in DuckDuckGo",
-                    "url": link,
-                    "snippet": f"Automatic search failed ({exc}). Click to open results.",
-                }]
+            errors.append(str(exc))
 
         relevant = self._rank_relevant(query, results, n)
 
-        # If the first search was noisy, retry once with the domain context.
-        # This is especially useful for short questions such as "What is Mach number?".
-        if len(relevant) < min(3, n) and search_query == query and self._needs_aerospace_context(query):
-            try:
-                retry_query = self._web_query(query)
-                if retry_query != query:
-                    retry = self._search_duckduckgo(retry_query, n)
-                    relevant = self._rank_relevant(query, retry, n) or relevant
-            except Exception:
-                pass
+        # Free DDGS can be rate-limited on hosted IPs. Try independent engines
+        # one at a time so one failed engine does not discard another engine's hits.
+        if len(relevant) < min(3, n):
+            for engine in ("bing", "brave", "startpage", "yahoo", "duckduckgo"):
+                try:
+                    retry = self._search_ddgs_engine(search_query, n, engine)
+                    candidate = self._rank_relevant(query, retry, n)
+                    if len(candidate) > len(relevant):
+                        relevant = candidate
+                    if len(relevant) >= min(3, n):
+                        break
+                except Exception as exc:
+                    errors.append(f"{engine}: {exc}")
 
+        # Try exact wording if domain-expanded search was too restrictive.
+        if len(relevant) < min(3, n) and search_query != query:
+            for engine in ("bing", "brave", "startpage", "duckduckgo"):
+                try:
+                    retry = self._search_ddgs_engine(query, n, engine)
+                    candidate = self._rank_relevant(query, retry, n)
+                    if len(candidate) > len(relevant):
+                        relevant = candidate
+                    if len(relevant) >= min(3, n):
+                        break
+                except Exception as exc:
+                    errors.append(f"{engine}: {exc}")
+
+        # Never fill the source list with unrelated results.
+        if not relevant:
+            link = "https://duckduckgo.com/?q=" + urllib.parse.quote(search_query)
+            detail = errors[0][:180] if errors else "No relevant web results were returned."
+            return [{
+                "title": "Open web search",
+                "url": link,
+                "snippet": f"Intellex could not retrieve relevant web results automatically. {detail}",
+                "_search_error": True,
+            }]
         return relevant[:n]
 
     # ------------------------------------------------------------------ #
     # OpenRouter (built-in web search tool)
     # ------------------------------------------------------------------ #
     def _search_openrouter(self, query: str, n: int) -> List[Dict]:
+        """Use OpenRouter's current server-side web search when explicitly enabled."""
         import json
         import urllib.request
-
         model = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
         payload = {
             "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": (
-                        "Search the web for the following query and return "
-                        f"a JSON list (no markdown) of the top {n} results. "
-                        'Each item must have exactly the keys "title", "url", '
-                        '"snippet". Query: ' + query,
-                    ),
-                }
-            ],
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "web_search",
-                        "description": "Search the web for current information",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {"query": {"type": "string"}},
-                            "required": ["query"],
-                        },
-                    },
-                }
-            ],
+            "messages": [{"role": "user", "content": f"Find {n} relevant web sources for: {query}. Use them as evidence."}],
+            "tools": [{"type": "openrouter:web_search"}],
             "tool_choice": "auto",
             "temperature": 0.2,
         }
@@ -251,32 +241,30 @@ class WebSearch:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.openrouter_key}",
-                "HTTP-Referer": "http://localhost:8000",
+                "HTTP-Referer": "https://intellex.app",
                 "X-Title": "Intellex",
             },
         )
         with urllib.request.urlopen(req, timeout=90) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        msg = data["choices"][0]["message"]
-
-        # If the model used the web_search tool, extract tool calls.
-        tool_calls = msg.get("tool_calls") or []
-        if tool_calls:
-            results = []
-            for tc in tool_calls:
-                args = json.loads(tc.get("function", {}).get("arguments", "{}"))
-                q = args.get("query", query)
-                results.extend(self._search_duckduckgo(q, n))
-            if results:
-                return results
-
-        # Otherwise parse the model's JSON answer.
-        content = (msg.get("content") or "").strip()
-        parsed = self._parse_json_list(content)
-        if parsed:
-            return parsed
-        # If we still got nothing usable, use DuckDuckGo.
-        return self._search_duckduckgo(query, n)
+        results = []
+        for choice in data.get("choices", []):
+            msg = choice.get("message", {}) or {}
+            for tc in msg.get("tool_calls", []) or []:
+                fn = tc.get("function", {}) or {}
+                raw = fn.get("arguments", "{}")
+                try:
+                    args = json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    args = {}
+                for item in args.get("results", []) if isinstance(args, dict) else []:
+                    if isinstance(item, dict) and item.get("url"):
+                        results.append({
+                            "title": str(item.get("title", "")).strip(),
+                            "url": str(item.get("url", "")).strip(),
+                            "snippet": str(item.get("snippet", item.get("content", ""))).strip(),
+                        })
+        return results[:n] or self._search_duckduckgo(query, n)
 
     @staticmethod
     def _parse_json_list(text: str) -> List[Dict]:
@@ -410,6 +398,20 @@ class WebSearch:
         return results
 
     # ------------------------------------------------------------------ #
+    # DDGS metasearch engines
+    # ------------------------------------------------------------------ #
+    def _search_ddgs_engine(self, query: str, n: int, engine: str) -> List[Dict]:
+        from ddgs import DDGS
+        results: List[Dict] = []
+        with DDGS(timeout=12) as ddgs:
+            for r in ddgs.text(query, max_results=n, backend=engine):
+                results.append({
+                    "title": r.get("title", "").strip(),
+                    "url": r.get("href", r.get("url", "")).strip(),
+                    "snippet": (r.get("body", "") or "").strip(),
+                })
+        return results[:n]
+
     # DuckDuckGo (free fallback)
     # ------------------------------------------------------------------ #
     def _search_duckduckgo(self, query: str, n: int) -> List[Dict]:
