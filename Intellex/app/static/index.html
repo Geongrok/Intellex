@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Intellex — Aerospace Research Assistant</title>
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [["\\(", "\\)"], ["$", "$"]],
+        displayMath: [["\\[", "\\]"], ["$$", "$$"]],
+        processEscapes: true
+      },
+      svg: { fontCache: "global" }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">🧠</div>
+        <div>
+          <h1>Intellex</h1>
+          <p>Aerospace research assistant</p>
+        </div>
+      </div>
+      <div class="actions">
+        <span id="status" class="status"><i></i> Checking knowledge base…</span>
+        <button id="rebuild" class="rebuild" type="button">↻ <span>Rebuild index</span></button>
+      </div>
+    </header>
+
+    <main id="chat" class="chat">
+      <section class="welcome">
+        <div class="welcome-icon">✦</div>
+        <div class="kicker">AEROSPACE RESEARCH ASSISTANT</div>
+        <h2>Ask Intellex a question</h2>
+        <p>Each question is handled independently. Intellex searches your knowledge base first, then uses AeroCalc or the web when needed.</p>
+        <div class="quick">
+          <button data-q="What is Mach number?">What is Mach number?</button>
+          <button data-q="What is an airfoil?">What is an airfoil?</button>
+          <button data-q="What is finite element analysis?">What is finite element analysis?</button>
+        </div>
+      </section>
+    </main>
+
+    <form id="form" class="composer" autocomplete="off">
+      <textarea id="input" rows="1" placeholder="Ask an aerospace question…"></textarea>
+      <button id="send" class="send" type="submit" aria-label="Send">➤</button>
+    </form>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
